@@ -21,13 +21,25 @@ VPS_PAGE_URL = "https://woniu336.github.io/vps-date/"  # 替换为你的实际UR
 DINGTALK_WEBHOOK = ""
 DINGTALK_SECRET = ""
 
+def parse_expire_datetime(value):
+    """兼容 YYYY-MM-DD 和 YYYY-MM-DDTHH:MM:SS / YYYY-MM-DD HH:MM:SS"""
+    if not value:
+        return None
+    value = value.strip().replace('T', ' ')
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"无法识别的到期时间: {value}")
+
 def calculate_days_until_expire(service):
     """计算距离到期还有多少天"""
     today = datetime.now()
-    
+
     if 'expireDate' in service:
         # 处理具体到期日期
-        expire_date = datetime.strptime(service['expireDate'], '%Y-%m-%d')
+        expire_date = parse_expire_datetime(service['expireDate'])
         days_left = (expire_date - today).days
     elif 'monthlyExpireDay' in service:
         # 处理每月重复日期

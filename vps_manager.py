@@ -8,6 +8,19 @@ import urllib.parse
 import time
 from datetime import datetime
 
+def parse_expire_datetime(value):
+    """兼容 YYYY-MM-DD 和 YYYY-MM-DDTHH:MM:SS / YYYY-MM-DD HH:MM:SS"""
+    if not value:
+        return None
+    value = value.strip().replace('T', ' ')
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"无法识别的到期时间: {value}")
+
+
 class NotificationManager:
     def __init__(self):
         self.config_file = 'config.json'
@@ -77,7 +90,7 @@ class VPSManager:
 
     def load_vps_data(self):
         try:
-            with open(self.vps_file, 'r') as f:
+            with open(self.vps_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 start = content.find('const vpsServices = [')
                 end = content.find('];', start) + 1
@@ -89,7 +102,7 @@ class VPSManager:
 
     def save_vps_data(self):
         try:
-            with open(self.vps_file, 'r') as f:
+            with open(self.vps_file, 'r', encoding='utf-8') as f:
                 content = f.read()
             
             start = content.find('const vpsServices = [')
@@ -101,7 +114,7 @@ class VPSManager:
                 content[end:]
             )
             
-            with open(self.vps_file, 'w') as f:
+            with open(self.vps_file, 'w', encoding='utf-8') as f:
                 f.write(new_content)
             print("\n保存成功！")
             
@@ -118,8 +131,14 @@ class VPSManager:
         print("\nVPS列表:")
         print("-" * 60)
         for i, vps in enumerate(self.vps_data, 1):
-            expire_info = vps.get('expireDate', f"每月{vps.get('monthlyExpireDay')}号续费")
-            print(f"{i}. {vps['name']} - {vps['cost']} {vps['currency']} - 到期: {expire_info}")
+            cycle_label = '年' if vps.get('billingCycle') == 'year' else '月'
+            if 'expireDate' in vps:
+                expire_info = vps['expireDate']
+            elif 'monthlyExpireDay' in vps:
+                expire_info = f"每月{vps['monthlyExpireDay']}号"
+            else:
+                expire_info = "未设置"
+            print(f"{i}. {vps['name']} - {vps['cost']} {vps['currency']}/{cycle_label} - 到期: {expire_info}")
         print("-" * 60)
 
     def edit_vps(self):
@@ -133,23 +152,20 @@ class VPSManager:
             vps = self.vps_data[idx]
             print(f"\n正在修改: {vps['name']}")
             print("\n直接回车保持原值")
-            
-            # Record changes
+
             changes = {}
-            
-            # Basic info (use English for VPS name)
+
             name = input(f"Name ({vps['name']}): ")
             if name:
                 changes['name'] = name.strip()
-            
+
             cost_str = input(f"费用 ({vps['cost']}): ")
             if cost_str:
                 try:
                     changes['cost'] = float(cost_str)
                 except ValueError:
                     print("费用格式无效，保持原值")
-            
-            # Currency selection
+
             print("\n可选币种:", end='')
             for i, curr in enumerate(self.currencies, 1):
                 print(f" {i}.{curr}", end='')
@@ -162,18 +178,32 @@ class VPSManager:
                         changes['currency'] = self.currencies[curr_idx]
                 except ValueError:
                     print("币种选择无效，保持原值")
-            
-            # Expiry date
-            if 'expireDate' in vps:
-                date = input(f"Expiry date ({vps['expireDate']}): ")
+
+            current_cycle = vps.get('billingCycle', 'month')
+            cycle_input = input(f"计费周期 (当前: {current_cycle}) [month/year]: ").strip().lower()
+            if cycle_input in ('month', 'm'):
+                changes['billingCycle'] = 'month'
+            elif cycle_input in ('year', 'y'):
+                changes['billingCycle'] = 'year'
+            elif cycle_input:
+                print("无效的计费周期，保持原值")
+            new_cycle = changes.get('billingCycle', current_cycle)
+
+            if new_cycle == 'year':
+                current_expire = vps.get('expireDate', '')
+                date = input(f"到期时间 (当前: {current_expire}) [YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS]: ")
                 if date:
                     try:
-                        datetime.strptime(date, '%Y-%m-%d')
-                        changes['expireDate'] = date
-                    except ValueError:
-                        print("Invalid date format")
+                        dt = parse_expire_datetime(date)
+                        if dt.hour or dt.minute or dt.second:
+                            changes['expireDate'] = dt.strftime('%Y-%m-%dT%H:%M:%S')
+                        else:
+                            changes['expireDate'] = dt.strftime('%Y-%m-%d')
+                    except ValueError as ve:
+                        print(f"Invalid date format: {ve}")
             else:
-                day_str = input(f"Monthly renewal day ({vps['monthlyExpireDay']}): ")
+                current_day = vps.get('monthlyExpireDay', '')
+                day_str = input(f"每月续费日 (当前: {current_day}): ")
                 if day_str:
                     try:
                         day = int(day_str)
@@ -183,13 +213,26 @@ class VPSManager:
                             print("Day must be between 1-31")
                     except ValueError:
                         print("Invalid day format")
-            
-            # URL
+
+                current_time = vps.get('expireTime', '')
+                time_input = input(f"到期时间 (当前: {current_time}) [HH:MM:SS, 可空]: ").strip()
+                if time_input:
+                    changes['expireTime'] = time_input
+
+            current_ssl = vps.get('sslExpireDate', '')
+            ssl_input = input(f"SSL证书到期时间 (当前: {current_ssl}) [可空]: ").strip()
+            if ssl_input:
+                changes['sslExpireDate'] = ssl_input
+
+            current_note = vps.get('note', '')
+            note_input = input(f"备注 (当前: {current_note}) [可空]: ").strip()
+            if note_input:
+                changes['note'] = note_input
+
             url = input(f"URL ({vps['url']}): ")
             if url:
                 changes['url'] = url
 
-            # Apply changes if any
             if changes:
                 new_vps = vps.copy()
                 new_vps.update(changes)
@@ -198,7 +241,7 @@ class VPSManager:
                 print("\nUpdated successfully!")
             else:
                 print("\nNo changes made")
-            
+
         except Exception as e:
             print(f"\nEdit failed: {str(e)}")
 
@@ -209,19 +252,19 @@ class VPSManager:
             if not name:
                 print("名称不能为空！")
                 return
-            
+
             try:
                 cost = float(input("费用: "))
             except ValueError:
                 print("费用格式无效！")
                 return
-            
+
             # Currency selection
             print("\n可选币种:", end='')
             for i, curr in enumerate(self.currencies, 1):
                 print(f" {i}.{curr}", end='')
             print('')
-            
+
             try:
                 curr_idx = int(input("\n请选择币种: ")) - 1
                 if not (0 <= curr_idx < len(self.currencies)):
@@ -231,34 +274,41 @@ class VPSManager:
             except ValueError:
                 print("选择无效！")
                 return
-            
-            # Expiry info
-            expire_type = input("\nExpiry type (1:Fixed date 2:Monthly): ")
-            if expire_type == '1':
-                date = input("Expiry date (YYYY-MM-DD): ")
+
+            # Billing cycle
+            cycle = input("\n计费周期 (1:月付 2:年付) [1]: ").strip() or '1'
+            billing_cycle = 'year' if cycle == '2' else 'month'
+
+            expire_info = {'billingCycle': billing_cycle}
+            if billing_cycle == 'year':
+                date = input("到期时间 (YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS): ")
                 try:
-                    datetime.strptime(date, '%Y-%m-%d')
-                    expire_info = {'expireDate': date}
-                except ValueError:
-                    print("Invalid date format!")
+                    dt = parse_expire_datetime(date)
+                    if dt.hour or dt.minute or dt.second:
+                        expire_info['expireDate'] = dt.strftime('%Y-%m-%dT%H:%M:%S')
+                    else:
+                        expire_info['expireDate'] = dt.strftime('%Y-%m-%d')
+                except ValueError as ve:
+                    print(f"Invalid date format: {ve}")
                     return
-            elif expire_type == '2':
+            else:
                 try:
-                    day = int(input("Monthly renewal day (1-31): "))
+                    day = int(input("每月续费日 (1-31): "))
                     if not (1 <= day <= 31):
                         print("Day must be between 1-31!")
                         return
-                    expire_info = {'monthlyExpireDay': day}
+                    expire_info['monthlyExpireDay'] = day
                 except ValueError:
                     print("Invalid day format!")
                     return
-            else:
-                print("Invalid selection!")
-                return
-            
+                expire_time = input("到期时间 (HH:MM:SS, 可空): ").strip()
+                if expire_time:
+                    expire_info['expireTime'] = expire_time
+
+            ssl_expire = input("SSL证书到期时间 (可空): ").strip()
+            note = input("备注 (可空): ").strip()
             url = input("Management URL: ")
-            
-            # Create new VPS data
+
             new_vps = {
                 'name': name,
                 'cost': cost,
@@ -266,11 +316,15 @@ class VPSManager:
                 'url': url,
                 **expire_info
             }
-            
+            if ssl_expire:
+                new_vps['sslExpireDate'] = ssl_expire
+            if note:
+                new_vps['note'] = note
+
             self.vps_data.append(new_vps)
             self.save_vps_data()
             print("\nAdded successfully!")
-            
+
         except Exception as e:
             print(f"\nAdd failed: {str(e)}")
 
@@ -321,8 +375,8 @@ class VPSManager:
         
         results = []
         if self.notification.config['telegram']['enabled']:
-            success, msg = self.notification.send_telegram(message)
-            results.append(f"Telegram: {msg}")
+            self.notification.send_telegram(message)
+            results.append("Telegram: 已发送")
         
         if not results:
             print("未启用任何通知方式！")
@@ -334,11 +388,23 @@ class VPSManager:
         expiring_vps = []
         for vps in self.vps_data:
             if 'expireDate' in vps:
-                expire_date = datetime.strptime(vps['expireDate'], '%Y-%m-%d')
+                expire_date = parse_expire_datetime(vps['expireDate'])
                 days_left = (expire_date - datetime.now()).days
                 if 0 < days_left <= 3:
                     expiring_vps.append(f"{vps['name']}: 还有{days_left}天到期")
-        
+            elif 'monthlyExpireDay' in vps:
+                today = datetime.now()
+                expire_day = vps['monthlyExpireDay']
+                next_expire = datetime(today.year, today.month, expire_day)
+                if today.day > expire_day:
+                    if today.month == 12:
+                        next_expire = datetime(today.year + 1, 1, expire_day)
+                    else:
+                        next_expire = datetime(today.year, today.month + 1, expire_day)
+                days_left = (next_expire - today).days
+                if 0 < days_left <= 3:
+                    expiring_vps.append(f"{vps['name']}: 还有{days_left}天到期")
+
         if expiring_vps:
             message = "VPS到期提醒\n"
             message += f"当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"

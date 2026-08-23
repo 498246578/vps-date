@@ -156,6 +156,14 @@
             color: #4caf50;
         }
 
+        .vps-note {
+            font-size: 0.75rem;
+            color: #66806a;
+            margin-top: 4px;
+            line-height: 1.4;
+            word-break: break-all;
+        }
+
         .vps-info {
             flex: 4;
             display: flex;
@@ -410,7 +418,7 @@
                     <p id="serverCount">--</p>
                 </div>
                 <div class="col-md-4 stats-item">
-                    <h3>月度总支出</h3>
+                    <h3>月均支出</h3>
                     <p id="totalCost">--</p>
                 </div>
                 <div class="col-md-4 stats-item">
@@ -426,9 +434,10 @@
             <div class="vps-list-header">
                 <div class="vps-header-name">服务器名称</div>
                 <div class="vps-header-info">
-                    <div class="vps-header-item">月付</div>
-                    <div class="vps-header-item">折合人民币</div>
+                    <div class="vps-header-item">费用</div>
+                    <div class="vps-header-item">月均</div>
                     <div class="vps-header-item">到期时间</div>
+                    <div class="vps-header-item">SSL证书</div>
                 </div>
 
                 <div class="vps-header-status">剩余天数</div>
@@ -451,11 +460,118 @@
         
         const vpsServices = [
     {
-        "name": "测试",
-        "cost": 24.0,
-        "currency": "USD",
-        "url": "https://billing.spartanhost.net/aff.php?aff=1119&pid=426",
-        "expireDate": "2036-02-04"
+        "name": "特彼",
+        "cost": 299.2,
+        "currency": "CNY",
+        "billingCycle": "month",
+        "monthlyExpireDay": 22,
+        "expireTime": "23:59:59",
+        "url": ""
+    },
+    {
+        "name": "兆宁",
+        "cost": 48.0,
+        "currency": "CNY",
+        "billingCycle": "month",
+        "monthlyExpireDay": 4,
+        "expireTime": "23:59:59",
+        "url": ""
+    },
+    {
+        "name": "半影",
+        "cost": 99.0,
+        "currency": "CNY",
+        "billingCycle": "year",
+        "expireDate": "2026-12-28T23:59:59",
+        "sslExpireDate": "2026-10-01T07:59:59",
+        "note": "SSL证书到期时间：2026-10-1 07:59:59",
+        "url": ""
+    },
+    {
+        "name": "海思",
+        "cost": 99.0,
+        "currency": "CNY",
+        "billingCycle": "year",
+        "expireDate": "2026-11-20T23:59:59",
+        "url": ""
+    },
+    {
+        "name": "半影 发货",
+        "cost": 259.0,
+        "currency": "CNY",
+        "billingCycle": "month",
+        "monthlyExpireDay": 17,
+        "sslExpireDate": "2026-09-05",
+        "note": "SSL证书到期时间：2026-09-05",
+        "url": ""
+    },
+    {
+        "name": "博杨 SBS",
+        "cost": 359.0,
+        "currency": "CNY",
+        "billingCycle": "month",
+        "monthlyExpireDay": 18,
+        "note": "续费时执行SSL续期命令（sudo certbot renew --dry-run）并重载Nginx",
+        "url": ""
+    },
+    {
+        "name": "轮询前端 防攻击",
+        "cost": 899.0,
+        "currency": "CNY",
+        "billingCycle": "month",
+        "monthlyExpireDay": 21,
+        "url": ""
+    },
+    {
+        "name": "灏星",
+        "cost": 45.0,
+        "currency": "CNY",
+        "billingCycle": "month",
+        "monthlyExpireDay": 8,
+        "expireTime": "00:00:00",
+        "note": "续费时执行SSL续期命令（sudo certbot renew --dry-run）并重载Nginx",
+        "url": ""
+    },
+    {
+        "name": "谷鑫",
+        "cost": 99.0,
+        "currency": "CNY",
+        "billingCycle": "year",
+        "expireDate": "2027-01-21T23:59:59",
+        "url": ""
+    },
+    {
+        "name": "灏影",
+        "cost": 99.0,
+        "currency": "CNY",
+        "billingCycle": "year",
+        "expireDate": "2027-05-15T23:59:59",
+        "url": ""
+    },
+    {
+        "name": "特彼",
+        "cost": 99.0,
+        "currency": "CNY",
+        "billingCycle": "year",
+        "expireDate": "2026-12-29T23:59:59",
+        "note": "年付",
+        "url": ""
+    },
+    {
+        "name": "汇海",
+        "cost": 99.0,
+        "currency": "CNY",
+        "billingCycle": "year",
+        "expireDate": "2026-10-24T23:59:59",
+        "url": ""
+    },
+    {
+        "name": "睿思凯奇",
+        "cost": 99.0,
+        "currency": "CNY",
+        "billingCycle": "year",
+        "expireDate": "2026-10-24T23:59:59",
+        "url": ""
     }
 ];
         
@@ -469,24 +585,55 @@
             });
         }
 
+        function formatDateTime(date) {
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function getNextExpireDate(service) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            if (service.billingCycle === 'year' && service.expireDate) {
+                return new Date(service.expireDate);
+            }
+
+            if (service.monthlyExpireDay) {
+                let expireDate = new Date(today.getFullYear(), today.getMonth(), service.monthlyExpireDay);
+                if (today.getDate() > service.monthlyExpireDay) {
+                    expireDate = new Date(today.getFullYear(), today.getMonth() + 1, service.monthlyExpireDay);
+                }
+                if (service.expireTime) {
+                    const parts = service.expireTime.split(':').map(Number);
+                    expireDate.setHours(parts[0] || 0, parts[1] || 0, parts[2] || 0, 0);
+                }
+                return expireDate;
+            }
+
+            if (service.expireDate) {
+                return new Date(service.expireDate);
+            }
+
+            return null;
+        }
+
         function calculateDaysUntilExpire(service) {
             try {
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);  // 设置时间为当天0点
-                let expireDate;
-                
-                if (service.expireDate) {
-                    expireDate = new Date(service.expireDate);
-                    expireDate.setHours(0, 0, 0, 0);  // 设置到期时间为当天0点
-                } else if (service.monthlyExpireDay) {
-                    expireDate = new Date(today.getFullYear(), today.getMonth(), service.monthlyExpireDay);
-                    if (today.getDate() > service.monthlyExpireDay) {
-                        expireDate = new Date(today.getFullYear(), today.getMonth() + 1, service.monthlyExpireDay);
-                    }
-                } else {
+                const expireDate = getNextExpireDate(service);
+
+                if (!expireDate) {
                     return '未设置到期日';
                 }
-                
+
+                expireDate.setHours(0, 0, 0, 0);  // 仅按日期计算剩余天数
                 const diffTime = expireDate - today;
                 return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             } catch (error) {
@@ -519,8 +666,9 @@
                 const rowsHTML = sortedServices.map(service => {
                     const daysLeft = calculateDaysUntilExpire(service);
                     const costInCNY = convertToCNY(parseFloat(service.cost), service.currency);
-                    totalCostCNY += costInCNY;
-                    
+                    const monthlyCost = service.billingCycle === 'year' ? costInCNY / 12 : costInCNY;
+                    totalCostCNY += monthlyCost;
+
                     if (typeof daysLeft === 'number' && daysLeft <= 3) {
                         expiringCount++;
                     }
@@ -531,27 +679,35 @@
                         else if (daysLeft <= 7) statusClass = 'status-warning';
                     }
 
-                    let expireDateText = service.expireDate ? 
-                        formatDate(new Date(service.expireDate)) : 
-                        service.monthlyExpireDay ? `每月${service.monthlyExpireDay}号` : '未设置';
+                    const nextExpireDate = getNextExpireDate(service);
+                    const expireDateText = nextExpireDate ? ((service.billingCycle === 'year' && service.expireDate && !String(service.expireDate).includes('T')) || (service.billingCycle !== 'year' && !service.expireTime) ? formatDate(nextExpireDate) : formatDateTime(nextExpireDate)) : '未设置';
+                    const sslDate = service.sslExpireDate ? new Date(service.sslExpireDate) : null;
+                    const sslText = service.sslExpireDate ? (String(service.sslExpireDate).includes('T') ? formatDateTime(sslDate) : formatDate(sslDate)) : '';
+                    const cycleLabel = service.billingCycle === 'year' ? '年' : '月';
+                    const costText = `${service.cost} ${service.currency}/${cycleLabel}`;
 
                     return `
                         <div class="vps-row">
                             <div class="vps-name">
-                                <a href="${service.url}" target="_blank">${service.name}</a>
+                                <a href="${service.url || '#'}" target="_blank">${service.name}</a>
+                                ${service.note ? `<div class="vps-note">${service.note}</div>` : ''}
                             </div>
                             <div class="vps-info">
                                 <div class="vps-info-item">
-                                    <div class="vps-info-label">月付</div>
-                                    <div class="vps-info-value">${service.cost} ${service.currency}</div>
+                                    <div class="vps-info-label">费用</div>
+                                    <div class="vps-info-value">${costText}</div>
                                 </div>
                                 <div class="vps-info-item">
-                                    <div class="vps-info-label">折合人民币</div>
-                                    <div class="vps-info-value">${costInCNY ? '¥' + costInCNY.toFixed(2) : '¥0.00'}</div>
+                                    <div class="vps-info-label">月均</div>
+                                    <div class="vps-info-value">${monthlyCost ? '¥' + monthlyCost.toFixed(2) : '¥0.00'}</div>
                                 </div>
                                 <div class="vps-info-item">
                                     <div class="vps-info-label">到期时间</div>
                                     <div class="vps-info-value">${expireDateText}</div>
+                                </div>
+                                <div class="vps-info-item">
+                                    <div class="vps-info-label">SSL证书</div>
+                                    <div class="vps-info-value">${sslText || '-'}</div>
                                 </div>
                             </div>
                             <div class="status-badge ${statusClass}">
