@@ -6,6 +6,7 @@ import hashlib
 import base64
 import urllib.parse
 import time
+import calendar
 from datetime import datetime
 
 def parse_expire_datetime(value):
@@ -341,6 +342,69 @@ class VPSManager:
         except Exception as e:
             print(f"\n删除失败: {str(e)}")
 
+    @staticmethod
+    def add_billing_cycle(expire_date, billing_cycle):
+        """在保留时间的前提下增加一个月或一年，并兼容月底日期。"""
+        if billing_cycle == 'year':
+            year = expire_date.year + 1
+            day = min(expire_date.day, calendar.monthrange(year, expire_date.month)[1])
+            return expire_date.replace(year=year, day=day)
+
+        month_index = expire_date.year * 12 + expire_date.month
+        year, zero_based_month = divmod(month_index, 12)
+        month = zero_based_month + 1
+        day = min(expire_date.day, calendar.monthrange(year, month)[1])
+        return expire_date.replace(year=year, month=month, day=day)
+
+    def renew_vps(self):
+        """将选中服务器的明确到期时间顺延一个计费周期。"""
+        self.list_vps()
+        try:
+            idx = int(input("\n请输入要续费的序号: ")) - 1
+            if not (0 <= idx < len(self.vps_data)):
+                print("无效的序号！")
+                return
+
+            vps = self.vps_data[idx]
+            billing_cycle = vps.get('billingCycle', 'month')
+            current_expire = vps.get('expireDate')
+
+            if current_expire:
+                expire_date = parse_expire_datetime(current_expire)
+            elif billing_cycle == 'month' and vps.get('monthlyExpireDay'):
+                now = datetime.now()
+                day = min(vps['monthlyExpireDay'], calendar.monthrange(now.year, now.month)[1])
+                hour, minute, second = 0, 0, 0
+                if vps.get('expireTime'):
+                    try:
+                        hour, minute, second = map(int, vps['expireTime'].split(':'))
+                    except (TypeError, ValueError):
+                        print("到期时间格式无效，应为 HH:MM:SS")
+                        return
+                expire_date = datetime(now.year, now.month, day, hour, minute, second)
+                if expire_date < now:
+                    expire_date = self.add_billing_cycle(expire_date, 'month')
+            else:
+                print("该服务器没有可用于续费的到期时间，请先通过“修改VPS”设置。")
+                return
+
+            renewed_date = self.add_billing_cycle(expire_date, billing_cycle)
+            cycle_label = '一年' if billing_cycle == 'year' else '一个月'
+            print(f"\n{vps['name']}: {expire_date.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"续费{cycle_label}后: {renewed_date.strftime('%Y-%m-%d %H:%M:%S')}")
+            if input("确认续费？[y/N]: ").strip().lower() not in ('y', 'yes'):
+                print("已取消续费。")
+                return
+
+            vps['expireDate'] = renewed_date.strftime('%Y-%m-%dT%H:%M:%S')
+            if billing_cycle == 'month':
+                vps['monthlyExpireDay'] = renewed_date.day
+                vps['expireTime'] = renewed_date.strftime('%H:%M:%S')
+            self.save_vps_data()
+            print(f"\n续费成功：{vps['name']} → {vps['expireDate']}")
+        except ValueError as e:
+            print(f"\n续费失败: {e}")
+
     def push_to_github(self):
         try:
             os.system('git add .')
@@ -473,6 +537,7 @@ class VPSManager:
             print("5. 推送到GitHub")
             print("6. 通知设置")
             print("7. 更新汇率")
+            print("8. 续费一个周期")
             print("0. 退出")
             print()
             print("=" * 20)
@@ -493,6 +558,8 @@ class VPSManager:
                 self.notification_menu()
             elif choice == '7':
                 self.update_exchange_rates()
+            elif choice == '8':
+                self.renew_vps()
             elif choice == '0':
                 break
             else:
@@ -507,4 +574,4 @@ if __name__ == "__main__":
         manager.show_menu()
     except Exception as e:
         print(f"\n程序出错: {e}")
-        input("\n按回车键退出...")  # 只在出错时提示按键退出 
+        input("\n按回车键退出...")  # 只在出错时提示按键退出
